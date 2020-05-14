@@ -2,4 +2,4 @@
 
 CURL=/usr/bin/curl
 
-${CURL} -X PUT https://65f34f5dz4.execute-api.us-east-1.amazonaws.com/dev/space/new
+${CURL} -X PUT https://65f34f5dz4.execute-api.us-east-1.amazonaws.com/dev/space/new/max_occupancy/$1

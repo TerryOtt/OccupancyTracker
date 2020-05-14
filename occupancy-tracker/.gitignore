@@ -20,3 +20,6 @@ var/
 .serverless
 
 .*.swp
+
+node_modules/
+package-lock.json

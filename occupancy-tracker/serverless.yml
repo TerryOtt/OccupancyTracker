@@ -29,11 +29,12 @@ provider:
 #  region: us-east-1
 
 # you can add statements to the Lambda function's IAM Role here
-#  iamRoleStatements:
-#    - Effect: "Allow"
-#      Action:
-#        - "s3:ListBucket"
-#      Resource: { "Fn::Join" : ["", ["arn:aws:s3:::", { "Ref" : "ServerlessDeploymentBucket" } ] ]  }
+  iamRoleStatements:
+  - Effect: "Allow"
+    Action:
+      - "dynamodb:*"
+    Resource: "*"
+
 #    - Effect: "Allow"
 #      Action:
 #        - "s3:PutObject"
@@ -62,7 +63,7 @@ functions:
     handler: handler.create_space
     events:
       - http:
-          path: space/new
+          path: space/new/max_occupancy/{max_occupancy}
           method: put
 
   get_occupancy:
