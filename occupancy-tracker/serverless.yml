@@ -65,6 +65,7 @@ functions:
       - http:
           path: space/new/max_occupancy/{max_occupancy}
           method: put
+          cors: true
 
   get_occupancy:
     handler: handler.get_occupancy
@@ -72,6 +73,7 @@ functions:
       - http:
           path: space/{space_id}
           method: get
+          cors: true
 
   increment:
     handler: handler.increment
@@ -79,6 +81,7 @@ functions:
       - http:
           path: space/{space_id}/increment
           method: put
+          cors: true
 
   decrement: 
     handler: handler.decrement
@@ -86,6 +89,8 @@ functions:
       - http:
           path: space/{space_id}/decrement
           method: put
+          cors: true
+
 
 #    Define function environment variables here
 #    environment:

@@ -16,6 +16,10 @@ logger.setLevel( logging.INFO )
 def _createHandlerResponse( statusCode, body ):
     return {
         "statusCode": statusCode,
+         "headers": {
+            "Content-Type"                  : "application/json",
+            "Access-Control-Allow-Origin"   : "*"
+        },
         "body": "{0}\n".format( json.dumps(body, indent=4, sort_keys=True) )
     }
 
