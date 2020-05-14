@@ -4,12 +4,13 @@ import uuid
 import logging
 import botocore
 import decimal
+import datetime
 
 
 dbTable = boto3.resource('dynamodb').Table('occupancy-tracker')
 
 logger = logging.getLogger()
-logger.setLevel( logging.DEBUG )
+logger.setLevel( logging.INFO )
 
 
 def _createHandlerResponse( statusCode, body ):
@@ -19,7 +20,7 @@ def _createHandlerResponse( statusCode, body ):
     }
 
 
-def _createOccupancyResponse( statusCode, spaceId, current, maximum ):
+def _createOccupancyResponse( statusCode, spaceId, current, maximum, created, lastUpdated ):
     return _createHandlerResponse( 
         statusCode,
         {
@@ -27,7 +28,9 @@ def _createOccupancyResponse( statusCode, spaceId, current, maximum ):
             'occupancy' : {
                 'current'   : int( current ),
                 'maximum'   : int( maximum )
-            }
+            },
+            'created'       : created,
+            'last_updated'  : lastUpdated
         }
     )
 
@@ -48,15 +51,19 @@ def create_space(event, context):
     newRoomId = uuid.uuid4() 
 
     # May want a transaction at some point?
+
+    nowTimestamp = "{0}Z".format(datetime.datetime.utcnow().isoformat())
     
     try:
         dbTable.put_item(
             Item={
                 'PK': str( newRoomId ),
                 'occupancy': {
-                    'current_occupancy'     : 0,
-                    'maximum_occupancy'     : maxOccupancy
-                }
+                    'current_occupancy' : 0,
+                    'maximum_occupancy' : maxOccupancy,
+                },
+                'created'               : nowTimestamp,
+                'last_updated'          : nowTimestamp 
             }
         )
     except botocore.exceptions.ClientError as e:
@@ -66,7 +73,7 @@ def create_space(event, context):
 
     logger.info("Created new space {0} w/ max occupancy {1}".format(newRoomId, maxOccupancy) )
 
-    return _createOccupancyResponse( 200, newRoomId, 0, maxOccupancy )
+    return _createOccupancyResponse( 200, newRoomId, 0, maxOccupancy, nowTimestamp, nowTimestamp )
 
 
 def get_occupancy(event, context):
@@ -91,21 +98,26 @@ def get_occupancy(event, context):
         )
 
     return _createOccupancyResponse( 200, spaceId, occupancyInfo['Item']['occupancy']['current_occupancy'],
-         occupancyInfo['Item']['occupancy']['maximum_occupancy'] )
+         occupancyInfo['Item']['occupancy']['maximum_occupancy'],
+         occupancyInfo['Item']['created'],
+         occupancyInfo['Item']['last_updated'] )
 
 
 def increment( event, content ):
     spaceId = event['pathParameters']['space_id']
 
     try:
+        nowTimestamp = "{0}Z".format(datetime.datetime.utcnow().isoformat())
         occupancyInfo = dbTable.update_item(
             Key={
                 'PK': spaceId
             },
-            UpdateExpression = "SET occupancy.current_occupancy = occupancy.current_occupancy + :one",
+            UpdateExpression = "SET occupancy.current_occupancy = occupancy.current_occupancy + :one, " + \
+                "last_updated = :updated_now",
             
             ExpressionAttributeValues={
-                ':one': decimal.Decimal(1)
+                ':one'          : decimal.Decimal(1),
+                ':updated_now'  : nowTimestamp
             },
 
             ReturnValues="ALL_NEW"
@@ -118,7 +130,10 @@ def increment( event, content ):
     logger.info(occupancyInfo)
 
     return _createOccupancyResponse( 200, spaceId, occupancyInfo['Attributes']['occupancy']['current_occupancy'],
-         occupancyInfo['Attributes']['occupancy']['maximum_occupancy'] )
+         occupancyInfo['Attributes']['occupancy']['maximum_occupancy'],
+         occupancyInfo['Attributes']['created'],
+         occupancyInfo['Attributes']['last_updated'] 
+    ) 
 
 
 
@@ -126,14 +141,17 @@ def decrement( event, context ):
     spaceId = event['pathParameters']['space_id']
 
     try:
+        nowTimestamp = "{0}Z".format(datetime.datetime.utcnow().isoformat())
         occupancyInfo = dbTable.update_item(
             Key={
                 'PK': spaceId
             },
-            UpdateExpression = "SET occupancy.current_occupancy = occupancy.current_occupancy - :one",
+            UpdateExpression = "SET occupancy.current_occupancy = occupancy.current_occupancy - :one, " + \
+                "last_updated = :updated_now",
 
             ExpressionAttributeValues={
-                ':one': decimal.Decimal(1)
+                ':one'          : decimal.Decimal(1),
+                ':updated_now'  : nowTimestamp 
             },
 
             ReturnValues="ALL_NEW"
@@ -144,5 +162,7 @@ def decrement( event, context ):
         return _createHandlerResponse( 500, "DB decrement fail for space {0}".format(spaceId) )
 
     return _createOccupancyResponse( 200, spaceId, occupancyInfo['Attributes']['occupancy']['current_occupancy'],
-         occupancyInfo['Attributes']['occupancy']['maximum_occupancy'] )
-
+         occupancyInfo['Attributes']['occupancy']['maximum_occupancy'],
+         occupancyInfo['Attributes']['created'],
+         occupancyInfo['Attributes']['last_updated']
+    )
