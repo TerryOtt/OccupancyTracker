@@ -23,6 +23,13 @@ service: occupancy-tracker
 provider:
   name: aws
   runtime: python3.8
+  vpc:
+    securityGroupIds:
+      - sg-14d6b54c
+    subnetIds:
+      - subnet-a21758c5
+      - subnet-525a107c
+      - subnet-b6531bea
 
 # you can overwrite defaults here
 #  stage: dev
@@ -34,6 +41,11 @@ provider:
     Action:
       - "dynamodb:*"
     Resource: "*"
+  - Effect: "Allow"
+    Action:
+      - "dax:*"
+    Resource: "*"
+
 
 #    - Effect: "Allow"
 #      Action:
@@ -107,3 +119,10 @@ functions:
 #     NewOutput:
 #       Description: "Description for the output"
 #       Value: "Some output value"
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    dockerizePip: true

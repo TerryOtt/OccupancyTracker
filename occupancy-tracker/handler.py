@@ -2,12 +2,24 @@ import json
 import boto3
 import uuid
 import logging
-import botocore
+import botocore.exceptions
+import botocore.session
 import decimal
 import datetime
+import amazondax
+import time
 
 
-dbTable = boto3.resource('dynamodb').Table('occupancy-tracker')
+#dbTable = boto3.resource('dynamodb').Table('occupancy-tracker')
+region      = "us-east-1"
+session     = botocore.session.get_session()
+#dynamodb    = session.create_client('dynamodb', region_name=region) # low-level client
+table_name  = "occupancy-tracker"
+endpoint    = "occupancy-dax.riesva.clustercfg.dax.use1.cache.amazonaws.com:8111"
+daxHandle   = amazondax.AmazonDaxClient(session, region_name=region, endpoints=[endpoint])
+
+# TTL: 8 hours
+ttlSeconds  = 60 * 60 * 8
 
 logger = logging.getLogger()
 logger.setLevel( logging.INFO )
@@ -57,23 +69,31 @@ def create_space(event, context):
     # May want a transaction at some point?
 
     nowTimestamp = "{0}Z".format(datetime.datetime.utcnow().isoformat())
+
+    expirationSecondsSinceEpoch = time.time() + ttlSeconds
     
     try:
-        dbTable.put_item(
-            Item={
-                'PK': str( newRoomId ),
-                'occupancy': {
-                    'current_occupancy' : 0,
-                    'maximum_occupancy' : maxOccupancy,
+        daxHandle.put_item( 
+            TableName       =  table_name,
+            Item            = {
+                'PK'            : { 'S': str(newRoomId) },
+                'occupancy'     : { 'M': {
+                        'current_occupancy': { 'N': str(0), },
+                        'maximum_occupancy': { 'N': str(maxOccupancy) } 
+                    }
                 },
-                'created'               : nowTimestamp,
-                'last_updated'          : nowTimestamp 
+
+                'created'       : { 'S': nowTimestamp },
+                'last_updated'  : { 'S': nowTimestamp },
+
+                # Time to live
+                'TTL'           : { 'N': str(expirationSecondsSinceEpoch) }
             }
-        )
+        )    
+
     except botocore.exceptions.ClientError as e:
         logger.error("Could not add new values to Dynamo: {0}".format(e) )
         return _createHandlerResponse( 500, "DB write fail" )
-  
 
     logger.info("Created new space {0} w/ max occupancy {1}".format(newRoomId, maxOccupancy) )
 
@@ -84,9 +104,10 @@ def get_occupancy(event, context):
     spaceId = event['pathParameters']['space_id']
 
     try:
-        occupancyInfo = dbTable.get_item(
-            Key={
-                'PK': spaceId    
+        occupancyInfo = daxHandle.get_item(
+            TableName       = table_name,
+            Key             = {
+                'PK': { 'S': str(spaceId) } 
             }
         ) 
     
@@ -101,10 +122,13 @@ def get_occupancy(event, context):
             }
         )
 
-    return _createOccupancyResponse( 200, spaceId, occupancyInfo['Item']['occupancy']['current_occupancy'],
-         occupancyInfo['Item']['occupancy']['maximum_occupancy'],
-         occupancyInfo['Item']['created'],
-         occupancyInfo['Item']['last_updated'] )
+    logger.debug( json.dumps(occupancyInfo, indent=4, sort_keys=True) )
+
+    return _createOccupancyResponse( 200, spaceId, 
+        occupancyInfo['Item']['occupancy']['M']['current_occupancy']['N'],
+        occupancyInfo['Item']['occupancy']['M']['maximum_occupancy']['N'],
+        occupancyInfo['Item']['created']['S'],
+        occupancyInfo['Item']['last_updated']['S'] )
 
 
 def increment( event, content ):
@@ -112,16 +136,21 @@ def increment( event, content ):
 
     try:
         nowTimestamp = "{0}Z".format(datetime.datetime.utcnow().isoformat())
-        occupancyInfo = dbTable.update_item(
-            Key={
-                'PK': spaceId
+        expirationSecondsSinceEpoch = time.time() + ttlSeconds
+
+        occupancyInfo = daxHandle.update_item(
+            TableName       = table_name,
+            Key             = {
+                'PK': { 'S': str(spaceId) }
             },
-            UpdateExpression = "SET occupancy.current_occupancy = occupancy.current_occupancy + :one, " + \
-                "last_updated = :updated_now",
+            UpdateExpression            = "SET occupancy.current_occupancy = occupancy.current_occupancy + :one, " + \
+                "last_updated = :updated_now, " + \
+                "TTL = :ttl",
             
-            ExpressionAttributeValues={
-                ':one'          : decimal.Decimal(1),
-                ':updated_now'  : nowTimestamp
+            ExpressionAttributeValues   = {
+                ':one'          : { 'N': str(1) },
+                ':updated_now'  : { 'S': nowTimestamp },
+                ':ttl'          : { 'N': str(expirationSecondsSinceEpoch) }
             },
 
             ReturnValues="ALL_NEW"
@@ -131,12 +160,13 @@ def increment( event, content ):
         logger.error("Could not increment occupancy for space {0}: {1}".format(spaceId, e) )
         return _createHandlerResponse( 500, "DB increment fail for space {0}".format(spaceId) )
 
-    logger.info(occupancyInfo)
+    logger.info( json.dumps(occupancyInfo, indent=4, sort_keys=True) )
 
-    return _createOccupancyResponse( 200, spaceId, occupancyInfo['Attributes']['occupancy']['current_occupancy'],
-         occupancyInfo['Attributes']['occupancy']['maximum_occupancy'],
-         occupancyInfo['Attributes']['created'],
-         occupancyInfo['Attributes']['last_updated'] 
+    return _createOccupancyResponse( 200, spaceId, 
+        occupancyInfo['Attributes']['occupancy']['M']['current_occupancy']['N'],
+        occupancyInfo['Attributes']['occupancy']['M']['maximum_occupancy']['N'],
+        occupancyInfo['Attributes']['created']['S'],
+        occupancyInfo['Attributes']['last_updated']['S']
     ) 
 
 
@@ -146,16 +176,20 @@ def decrement( event, context ):
 
     try:
         nowTimestamp = "{0}Z".format(datetime.datetime.utcnow().isoformat())
-        occupancyInfo = dbTable.update_item(
-            Key={
-                'PK': spaceId
+        expirationSecondsSinceEpoch = time.time() + ttlSeconds
+        occupancyInfo = daxHandle.update_item(
+            TableName       = table_name,
+            Key             = {
+                'PK': { 'S': spaceId }
             },
             UpdateExpression = "SET occupancy.current_occupancy = occupancy.current_occupancy - :one, " + \
-                "last_updated = :updated_now",
+                "last_updated = :updated_now, " + \
+                "TTL = :ttl",
 
             ExpressionAttributeValues={
-                ':one'          : decimal.Decimal(1),
-                ':updated_now'  : nowTimestamp 
+                ':one'          : { 'N': str(1) },
+                ':updated_now'  : { 'S': nowTimestamp },
+                ':ttl'          : { 'N': str(expirationSecondsSinceEpoch) }
             },
 
             ReturnValues="ALL_NEW"
@@ -165,8 +199,12 @@ def decrement( event, context ):
         logger.error("Could not decrement occupancy for space {0}: {1}".format(spaceId, e) )
         return _createHandlerResponse( 500, "DB decrement fail for space {0}".format(spaceId) )
 
-    return _createOccupancyResponse( 200, spaceId, occupancyInfo['Attributes']['occupancy']['current_occupancy'],
-         occupancyInfo['Attributes']['occupancy']['maximum_occupancy'],
-         occupancyInfo['Attributes']['created'],
-         occupancyInfo['Attributes']['last_updated']
+
+    logger.info( json.dumps(occupancyInfo, indent=4, sort_keys=True) )
+
+    return _createOccupancyResponse( 200, spaceId, 
+        occupancyInfo['Attributes']['occupancy']['M']['current_occupancy']['N'],
+        occupancyInfo['Attributes']['occupancy']['M']['maximum_occupancy']['N'],
+        occupancyInfo['Attributes']['created']['S'],
+        occupancyInfo['Attributes']['last_updated']['S']
     )
