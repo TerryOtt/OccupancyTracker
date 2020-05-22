@@ -75,7 +75,7 @@ functions:
     handler: handler.create_space
     events:
       - http:
-          path: space/new/max_occupancy/{max_occupancy}
+          path: space/new/occupancy/current/{current_occupancy}/max/{max_occupancy}
           method: put
           cors: true
 
@@ -100,6 +100,14 @@ functions:
     events:
       - http:
           path: space/{space_id}/decrement
+          method: put
+          cors: true
+
+  max_occupancy_change:
+    handler: handler.change_max_occupancy
+    events:
+      - http:
+          path: space/{space_id}/max/{new_max_occupancy}
           method: put
           cors: true
 
