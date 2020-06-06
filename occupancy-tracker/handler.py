@@ -64,8 +64,8 @@ def create_space(event, context):
     if maxOccupancy < 1 or maxOccupancy > 100000:
         return _createHandlerResponse( 400, 
             "Invalid occupancy value: {0}, passed value must be 1 <= max_occupancy <= 100000".format(maxOccupancy) )
-    if currOccupancy > maxOccupancy:
-        currOccupancy = maxOccupancy
+    if currOccupancy < 0:
+        currOccupancy = 0
 
     newRoomId = uuid.uuid4() 
 
@@ -205,6 +205,9 @@ def decrement( event, context ):
             Key             = {
                 'PK': { 'S': spaceId }
             },
+
+            ConditionExpression = "occupancy.current_occupancy >= :one",
+
             UpdateExpression = "SET occupancy.current_occupancy = occupancy.current_occupancy - :one, " + \
                 "last_updated = :updated_now, " + \
                 "TTL = :ttl",
@@ -220,6 +223,10 @@ def decrement( event, context ):
 
     except botocore.exceptions.ClientError as e:
         logger.error("Could not decrement occupancy for space {0}: {1}".format(spaceId, e) )
+        return _createHandlerResponse( 500, "DB decrement fail for space {0}".format(spaceId) )
+    except ConditionalCheckFailedException as e:
+        logger.error("Could not decrement occupancy for space {0} due to failed conditional check (would go negative)".format(
+            spaceId, e) )
         return _createHandlerResponse( 500, "DB decrement fail for space {0}".format(spaceId) )
     except Exception as e:
         logger.error("threw non-botocore exception during occupancy decrement: {0}".format(e))
@@ -262,6 +269,7 @@ def change_max_occupancy( event, context ):
             Key             = {
                 'PK': { 'S': str(spaceId) }
             },
+
             UpdateExpression            = "SET occupancy.maximum_occupancy = :new_maximum_occupancy, " + \
                 "last_updated = :updated_now, " + \
                 "TTL = :ttl",
