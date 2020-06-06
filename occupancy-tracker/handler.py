@@ -36,12 +36,13 @@ def _createHandlerResponse( statusCode, body ):
     }
 
 
-def _createOccupancyResponse( statusCode, spaceId, current, maximum, created, lastUpdated ):
+def _createOccupancyResponse( statusCode, spaceId, spaceName, current, maximum, created, lastUpdated ):
     return _createHandlerResponse( 
         statusCode,
         {
-            'space_id'  : str(spaceId),
-            'occupancy' : {
+            'space_id'      : str(spaceId),
+            'space_name'    : spaceName,
+            'occupancy'     : {
                 'current'   : int( current ),
                 'maximum'   : int( maximum )
             },
@@ -67,6 +68,12 @@ def create_space(event, context):
     if currOccupancy < 0:
         currOccupancy = 0
 
+    # See if we got passed a name for the space
+    if 'space_name' in event['pathParameters']:
+        spaceName = event['pathParameters']['space_name']
+    else:
+        spaceName = None
+
     newRoomId = uuid.uuid4() 
 
     # May want a transaction at some point?
@@ -80,6 +87,7 @@ def create_space(event, context):
             TableName       =  table_name,
             Item            = {
                 'PK'            : { 'S': str(newRoomId) },
+                'space_name'    : { 'S': spaceName },
                 'occupancy'     : { 'M': {
                         'current_occupancy': { 'N': str(currOccupancy) },
                         'maximum_occupancy': { 'N': str(maxOccupancy) } 
@@ -106,7 +114,7 @@ def create_space(event, context):
 
     logger.info("Created new space {0} w/ max occupancy {1}".format(newRoomId, maxOccupancy) )
 
-    return _createOccupancyResponse( 200, newRoomId, currOccupancy, maxOccupancy, nowTimestamp, nowTimestamp )
+    return _createOccupancyResponse( 200, newRoomId, spaceName, currOccupancy, maxOccupancy, nowTimestamp, nowTimestamp )
 
 
 def get_occupancy(event, context):
@@ -141,6 +149,7 @@ def get_occupancy(event, context):
     logger.debug( json.dumps(occupancyInfo, indent=4, sort_keys=True) )
 
     return _createOccupancyResponse( 200, spaceId, 
+        occupancyInfo['Item']['space_name']['S'],
         occupancyInfo['Item']['occupancy']['M']['current_occupancy']['N'],
         occupancyInfo['Item']['occupancy']['M']['maximum_occupancy']['N'],
         occupancyInfo['Item']['created']['S'],
@@ -186,6 +195,7 @@ def increment( event, content ):
     logger.debug( json.dumps(occupancyInfo, indent=4, sort_keys=True) )
 
     return _createOccupancyResponse( 200, spaceId, 
+        occupancyInfo['Attributes']['space_name']['S'],
         occupancyInfo['Attributes']['occupancy']['M']['current_occupancy']['N'],
         occupancyInfo['Attributes']['occupancy']['M']['maximum_occupancy']['N'],
         occupancyInfo['Attributes']['created']['S'],
@@ -238,6 +248,7 @@ def decrement( event, context ):
     logger.debug( json.dumps(occupancyInfo, indent=4, sort_keys=True) )
 
     return _createOccupancyResponse( 200, spaceId, 
+        occupancyInfo['Attributes']['space_name']['S'],
         occupancyInfo['Attributes']['occupancy']['M']['current_occupancy']['N'],
         occupancyInfo['Attributes']['occupancy']['M']['maximum_occupancy']['N'],
         occupancyInfo['Attributes']['created']['S'],
@@ -296,6 +307,7 @@ def change_max_occupancy( event, context ):
     logger.debug( json.dumps(occupancyInfo, indent=4, sort_keys=True) )
 
     return _createOccupancyResponse( 200, spaceId,
+        occupancyInfo['Attributes']['space_name']['S'],
         occupancyInfo['Attributes']['occupancy']['M']['current_occupancy']['N'],
         occupancyInfo['Attributes']['occupancy']['M']['maximum_occupancy']['N'],
         occupancyInfo['Attributes']['created']['S'],

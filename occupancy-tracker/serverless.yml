@@ -78,6 +78,10 @@ functions:
           path: space/new/occupancy/current/{current_occupancy}/max/{max_occupancy}
           method: put
           cors: true
+      - http:
+          path: space/new/occupancy/current/{current_occupancy}/max/{max_occupancy}/name/{space_name}
+          method: put
+          cors: true
 
   get_occupancy:
     handler: handler.get_occupancy
