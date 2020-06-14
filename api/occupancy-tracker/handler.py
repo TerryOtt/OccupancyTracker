@@ -72,7 +72,7 @@ def create_space(event, context):
     if 'space_name' in event['pathParameters']:
         spaceName = event['pathParameters']['space_name']
     else:
-        spaceName = None
+        spaceName = ""
 
     newRoomId = uuid.uuid4() 
 
